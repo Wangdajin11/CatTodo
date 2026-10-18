@@ -8,6 +8,8 @@ let stats = {};
 let focusSession = null;
 let checkins = {};
 let focusDuration = 25;
+let reviewOffset = 0;
+let editingTaskId = null;
 let ws = null;
 let currentView = "list";
 let calCursor = new Date();
@@ -85,6 +87,16 @@ function connectWS() {
       if (wasIn) showCat(msg.session.participants.length > 1 ? "一起完成了 " + msg.session.duration_min + " 分钟专注，太棒啦！" : "完成了 " + msg.session.duration_min + " 分钟专注，喵～", "cat5");
       if (currentView === "focus") renderFocus();
     }
+    if (msg.type === "focus:overtime") {
+      if (msg.participants.includes(ME.id)) {
+        showCat("已经专注 45 分钟啦，揉揉眼睛、喝口水再继续吧～", "cat3");
+      } else {
+        showCat("TA 已经连续专注 45 分钟了，给 TA 打个气吧！", "cat2");
+      }
+    }
+    if (msg.type === "focus:cheer") {
+      if (msg.from !== ME.id) showCat(esc(nameOf(msg.from)) + " 来给你打气啦，一起加油！🐾", "cat2");
+    }
     if (msg.type === "checkins") {
       checkins = msg.data;
       if (currentView === "focus") renderFocus();
@@ -101,6 +113,7 @@ function render() {
   if (currentView === "timeline") renderTimeline();
   if (currentView === "calendar") renderCalendar();
   if (currentView === "focus") renderFocus();
+  if (currentView === "review") renderReview();
 }
 
 function renderPresence() {
@@ -154,16 +167,57 @@ function subProgress(t) {
   return `<span class="sub-badge">${done}/${subs.length}</span>`;
 }
 
+function dueGroups() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const groups = { overdue: [], today: [], tomorrow: [] };
+  tasks.forEach((t) => {
+    if (t.done || !t.due_date) return;
+    const d = new Date(t.due_date + "T00:00:00");
+    const diff = Math.round((d - today) / 86400000);
+    if (diff < 0) groups.overdue.push(t);
+    else if (diff === 0) groups.today.push(t);
+    else if (diff === 1) groups.tomorrow.push(t);
+  });
+  return groups;
+}
+
+function dueChipsHtml(list) {
+  return list.map((t) => `<span style="color:${colorOf(t.owner_id)}">${esc(t.title)}</span>`).join("、");
+}
+
+function dueBannerHtml() {
+  const g = dueGroups();
+  const rows = [];
+  if (g.overdue.length) rows.push(`<div class="due-row overdue">⚠️ 已逾期 ${g.overdue.length} 项：${dueChipsHtml(g.overdue)}</div>`);
+  if (g.today.length) rows.push(`<div class="due-row today">🔴 今天截止 ${g.today.length} 项：${dueChipsHtml(g.today)}</div>`);
+  if (g.tomorrow.length) rows.push(`<div class="due-row tomorrow">🟡 明天截止 ${g.tomorrow.length} 项：${dueChipsHtml(g.tomorrow)}</div>`);
+  return rows.length ? `<div class="due-banner">${rows.join("")}</div>` : "";
+}
+
+function maybeDuePopup() {
+  const g = dueGroups();
+  const n = g.overdue.length + g.today.length;
+  if (!n) return;
+  const key = "due_prompt_" + fmtDate(new Date());
+  if (localStorage.getItem(key)) return;
+  localStorage.setItem(key, "1");
+  const parts = [];
+  if (g.overdue.length) parts.push(`${g.overdue.length} 个任务已逾期`);
+  if (g.today.length) parts.push(`${g.today.length} 个任务今天截止`);
+  setTimeout(() => showCat("喵～" + parts.join("，") + "，别忘了哦", "cat4"), 1500);
+}
+
 function renderList() {
   const el = $("#view-list");
   const sorted = [...tasks].sort(
     (a, b) => (a.done - b.done) || (a.start_time || "").localeCompare(b.start_time || "") || (a.due_date || "").localeCompare(b.due_date || "")
   );
+  el.innerHTML = dueBannerHtml();
   if (!sorted.length) {
-    el.innerHTML = `<div class="empty">还没有任务，点右上角 ＋ 新建一个吧 🐾</div>`;
+    el.innerHTML += `<div class="empty">还没有任务，点右上角 ＋ 新建一个吧 🐾</div>`;
     return;
   }
-  el.innerHTML = "";
   sorted.forEach((t) => {
     const card = document.createElement("div");
     card.className = "task-card" + (t.done ? " done" : "");
@@ -175,7 +229,7 @@ function renderList() {
         ${expanded.has(t.id) ? expandedHtml(t) : ""}
       </div>
       <button class="btn-done" data-act="toggle" data-id="${t.id}">${t.done ? "✓ 已完成" : "完成"}</button>
-      ${t.owner_id === ME.id ? `<button class="btn-del" data-act="del" data-id="${t.id}">×</button>` : ""}`;
+      ${t.owner_id === ME.id ? `<button class="btn-edit" data-act="edit" data-id="${t.id}" title="编辑">✎</button><button class="btn-del" data-act="del" data-id="${t.id}">×</button>` : ""}`;
     el.appendChild(card);
   });
 }
@@ -388,7 +442,10 @@ function renderFocus() {
         <button class="focus-ghost" data-act="focus-stop">结束自习</button>`;
     } else {
       controls += `<div class="focus-state" id="focus-state">${esc(starter ? starter.name : "")} 发起了 ${running.duration_min} 分钟自习</div>
-        <button class="focus-primary" data-act="focus-join">加入自习</button>`;
+        <div class="focus-actions">
+          <button class="focus-primary" data-act="focus-join">加入自习</button>
+          <button class="focus-ghost" data-act="focus-cheer">给 TA 打气 🐾</button>
+        </div>`;
     }
   }
 
@@ -445,15 +502,61 @@ function renderFocus() {
   focusTick();
 }
 
-function openModal() {
+async function renderReview() {
+  const el = $("#view-review");
+  const data = await api("/api/review/weekly?week_offset=" + reviewOffset);
+  const r = data.monday.slice(5).replace("-", ".") + " - " + data.sunday.slice(5).replace("-", ".");
+  const label = reviewOffset === 0 ? "本周复盘" : reviewOffset === 1 ? "上周复盘" : "历史复盘";
+  const cards = users.map((u) => {
+    const d = data.users[u.id] || {};
+    return `<div class="review-card">
+      <div class="review-name" style="color:${u.color}">${esc(u.name)}</div>
+      <div class="review-stat"><b>${d.tasks_done || 0}</b><span>个完成任务</span></div>
+      <div class="review-stat"><b>${d.focus_count || 0}</b><span>个番茄钟 · ${d.focus_minutes || 0} 分钟</span></div>
+      <div class="review-stat"><b>${d.checkin_days || 0}</b><span>天打卡</span></div>
+      <div class="review-stat"><b>${(d.keys || 0).toLocaleString()}</b><span>次按键</span></div>
+    </div>`;
+  }).join("");
+  const sum = (k) => users.reduce((acc, u) => acc + ((data.users[u.id] || {})[k] || 0), 0);
+  const totalTasks = sum("tasks_done");
+  const totalFocus = sum("focus_count");
+  const totalMin = sum("focus_minutes");
+  const tip = totalTasks + totalFocus === 0
+    ? "这周还没有记录，一起开始自习吧 🐾"
+    : `本周两人一起完成了 ${totalTasks} 个任务、${totalFocus} 个番茄钟（共 ${totalMin} 分钟），辛苦了喵～`;
+  el.innerHTML = `
+    <div class="review-head">
+      <button data-review="1">‹</button>
+      <span>${label} · ${r}</span>
+      <button data-review="-1" ${reviewOffset === 0 ? "disabled" : ""}>›</button>
+    </div>
+    <div class="review-cards">${cards}</div>
+    <div class="review-tip">${tip}</div>`;
+}
+
+function openModal(t) {
   $("#modal").classList.remove("hidden");
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  $("#f-start").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  if (t) {
+    editingTaskId = t.id;
+    $("#modal-title").textContent = "编辑任务";
+    $("#f-title").value = t.title || "";
+    $("#f-desc").value = t.description || "";
+    $("#f-start").value = t.start_time ? t.start_time.replace(" ", "T") : "";
+    $("#f-end").value = t.end_time ? t.end_time.replace(" ", "T") : "";
+    $("#f-due").value = t.due_date || "";
+    $("#f-private").checked = !!t.is_private;
+  } else {
+    editingTaskId = null;
+    $("#modal-title").textContent = "新建任务";
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    $("#f-start").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  }
   $("#f-title").focus();
 }
 function closeModal() {
   $("#modal").classList.add("hidden");
+  editingTaskId = null;
 }
 
 async function saveTask() {
@@ -468,7 +571,11 @@ async function saveTask() {
     due_date: $("#f-due").value || null,
     is_private: $("#f-private").checked ? 1 : 0,
   };
-  await api("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
+  if (editingTaskId) {
+    await api(`/api/tasks/${editingTaskId}`, { method: "PATCH", body: JSON.stringify(payload) });
+  } else {
+    await api("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
+  }
   closeModal();
   ["f-title", "f-desc", "f-end", "f-due"].forEach((id) => ($(`#${id}`).value = ""));
   $("#f-private").checked = false;
@@ -532,6 +639,12 @@ document.addEventListener("click", (e) => {
     renderFocus();
     return;
   }
+  const reviewNav = e.target.closest("[data-review]");
+  if (reviewNav) {
+    reviewOffset = Math.max(0, reviewOffset + parseInt(reviewNav.dataset.review, 10));
+    renderReview();
+    return;
+  }
   const act = e.target.closest("[data-act]");
   if (act) {
     const id = parseInt(act.dataset.id, 10);
@@ -541,11 +654,20 @@ document.addEventListener("click", (e) => {
     if (act.dataset.act === "focus-join") {
       api("/api/focus/join", { method: "POST", body: JSON.stringify({ user_id: ME.id }) });
     }
+    if (act.dataset.act === "focus-cheer") {
+      api("/api/focus/cheer", { method: "POST", body: JSON.stringify({ from_user_id: ME.id }) });
+      showCat("打气已送达，TA 会看到的 🐾", "cat1");
+    }
     if (act.dataset.act === "focus-stop") {
       api("/api/focus/stop", { method: "POST" });
     }
     if (act.dataset.act === "checkin") {
       api("/api/checkin", { method: "POST", body: JSON.stringify({ user_id: ME.id }) });
+    }
+    if (act.dataset.act === "edit") {
+      const t = tasks.find((x) => x.id === id);
+      if (t) openModal(t);
+      return;
     }
     if (act.dataset.act === "toggle") {
       const t = tasks.find((x) => x.id === id);
@@ -642,6 +764,7 @@ async function boot() {
   await loadThreshold();
   connectWS();
   render();
+  maybeDuePopup();
   setInterval(refreshStats, 10000);
   setInterval(focusTick, 1000);
 }
