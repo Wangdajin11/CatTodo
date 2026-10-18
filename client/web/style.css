@@ -388,6 +388,73 @@ main { flex: 1; overflow: auto; padding: 18px 22px; }
   margin: 0 4px;
 }
 
+/* 临期提醒 */
+.due-banner {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.due-row { border-radius: 8px; padding: 4px 10px; }
+.due-row.overdue { background: #fdecec; color: #c0504d; }
+.due-row.today { background: #fef3e2; color: #c97a2a; }
+.due-row.tomorrow { background: #f6f0e8; color: #9b7a4a; }
+.due-row span { font-weight: 600; margin: 0 2px; }
+
+.btn-edit {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.focus-actions { display: flex; gap: 10px; align-items: center; justify-content: center; }
+
+/* 复盘 */
+#view-review { max-width: 900px; margin: 0 auto; }
+.review-head { display: flex; align-items: center; justify-content: center; gap: 18px; margin-bottom: 16px; }
+.review-head button {
+  border: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  width: 34px;
+  height: 32px;
+  font-size: 16px;
+  cursor: pointer;
+}
+.review-head button:disabled { opacity: 0.4; cursor: not-allowed; }
+.review-head span { font-size: 16px; font-weight: 600; }
+.review-cards { display: flex; gap: 16px; }
+.review-card {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.review-name { font-size: 16px; font-weight: 700; }
+.review-stat { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--muted); }
+.review-stat b { font-size: 22px; color: var(--text); }
+.review-tip {
+  text-align: center;
+  margin-top: 18px;
+  font-size: 14px;
+  color: var(--accent);
+  background: var(--card);
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  padding: 14px;
+}
+
 /* 弹窗 */
 #modal {
   position: fixed;
