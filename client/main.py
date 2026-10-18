@@ -7,6 +7,7 @@ import webview
 from typing_hook import start_typing_tracker
 
 BASE_DIR = Path(__file__).resolve().parent
+CONFIG_PATH = BASE_DIR / "config.json"
 logging.basicConfig(
     filename=BASE_DIR / "client.log",
     level=logging.INFO,
@@ -16,8 +17,28 @@ logging.basicConfig(
 
 
 def load_config():
-    path = BASE_DIR / "config.json"
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+
+
+def save_config(cfg):
+    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+class Api:
+    def __init__(self, cfg, tracker):
+        self.cfg = cfg
+        self.tracker = tracker
+
+    def get_threshold(self):
+        return int(self.cfg.get("threshold", 300))
+
+    def set_threshold(self, n):
+        n = max(50, min(2000, int(n)))
+        self.cfg["threshold"] = n
+        save_config(self.cfg)
+        self.tracker.threshold = n
+        logging.info("threshold set to %s", n)
+        return n
 
 
 def main():
@@ -33,12 +54,18 @@ def main():
                 pass
 
     logging.info("client starting, user_id=%s", cfg["user_id"])
-    start_typing_tracker(cfg["server_url"], cfg["user_id"], on_threshold=on_threshold)
+    tracker = start_typing_tracker(
+        cfg["server_url"], cfg["user_id"],
+        threshold=int(cfg.get("threshold", 300)),
+        on_threshold=on_threshold,
+    )
+    api = Api(cfg, tracker)
     webview.create_window(
         "CatTodo · 猫猫待办",
         cfg["server_url"] + f"?user={cfg['user_id']}",
         width=1280,
         height=820,
+        js_api=api,
     )
     webview.start()
 

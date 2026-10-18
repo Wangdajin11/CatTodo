@@ -60,8 +60,10 @@ class TypingTracker:
             self._flush()
 
 
-def start_typing_tracker(server_url, user_id, on_threshold=None):
-    tracker = TypingTracker(server_url, user_id, on_threshold=on_threshold)
+def start_typing_tracker(server_url, user_id, threshold=300, on_threshold=None):
+    tracker = TypingTracker(
+        server_url, user_id, threshold=threshold, on_threshold=on_threshold
+    )
     thread = threading.Thread(target=tracker.run, daemon=True)
     thread.start()
     return tracker

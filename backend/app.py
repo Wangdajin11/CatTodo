@@ -1,5 +1,7 @@
+import asyncio
 import json
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -61,6 +63,19 @@ class TypingIn(BaseModel):
     minutes: int = 0
 
 
+class FocusStartIn(BaseModel):
+    user_id: int
+    duration_min: int = 25
+
+
+class FocusJoinIn(BaseModel):
+    user_id: int
+
+
+class CheckinIn(BaseModel):
+    user_id: int
+
+
 class Hub:
     def __init__(self):
         self.conns: set[WebSocket] = set()
@@ -83,6 +98,77 @@ class Hub:
 
 
 hub = Hub()
+
+
+class FocusManager:
+    def __init__(self):
+        self.current = None
+        self._task = None
+
+    def _session(self, sid, started_by, duration, start, end, participants):
+        return {
+            "id": sid,
+            "started_by": started_by,
+            "duration_min": duration,
+            "start_at": start.isoformat(),
+            "end_at": end.isoformat(),
+            "participants": participants,
+            "status": "running",
+        }
+
+    async def start(self, user_id, duration_min):
+        if self.current is not None:
+            return await self.join(user_id)
+        duration_min = min(180, max(5, int(duration_min)))
+        start = datetime.now(timezone.utc)
+        end = start + timedelta(minutes=duration_min)
+        participants = [user_id]
+        sid = models.create_focus_session(
+            user_id, duration_min, start.isoformat(), end.isoformat(), participants
+        )
+        self.current = self._session(sid, user_id, duration_min, start, end, participants)
+        self._task = asyncio.create_task(self._finish_at(sid, end))
+        await hub.broadcast({"type": "focus:update", "session": self.current})
+        return self.current
+
+    async def join(self, user_id):
+        if self.current is None:
+            return None
+        if user_id not in self.current["participants"]:
+            self.current["participants"].append(user_id)
+            models.update_focus_session(self.current["id"], participants=self.current["participants"])
+            await hub.broadcast({"type": "focus:update", "session": self.current})
+        return self.current
+
+    async def stop(self):
+        if self.current is None:
+            return None
+        if self._task:
+            self._task.cancel()
+        models.update_focus_session(self.current["id"], status="cancelled")
+        self.current["status"] = "cancelled"
+        await hub.broadcast({"type": "focus:update", "session": self.current})
+        self.current = None
+        self._task = None
+        return None
+
+    async def _finish_at(self, sid, end):
+        wait = max(0.0, (end - datetime.now(timezone.utc)).total_seconds())
+        await asyncio.sleep(wait)
+        if self.current is None or self.current["id"] != sid:
+            return
+        models.update_focus_session(sid, status="done")
+        participants = self.current["participants"]
+        for uid in participants:
+            models.checkin(uid)
+        finished = dict(self.current, status="done")
+        self.current = None
+        self._task = None
+        await hub.broadcast({"type": "focus:finished", "session": finished})
+        await hub.broadcast({"type": "checkins", "data": models.all_checkins()})
+
+
+focus = FocusManager()
 
 
 @app.get("/")
@@ -178,6 +264,38 @@ async def api_typing(t: TypingIn):
 @app.get("/api/stats/today")
 async def api_stats():
     return models.typing_today()
+
+
+@app.get("/api/focus/current")
+async def api_focus_current():
+    return focus.current
+
+
+@app.post("/api/focus/start")
+async def api_focus_start(body: FocusStartIn):
+    return await focus.start(body.user_id, body.duration_min)
+
+
+@app.post("/api/focus/join")
+async def api_focus_join(body: FocusJoinIn):
+    return await focus.join(body.user_id)
+
+
+@app.post("/api/focus/stop")
+async def api_focus_stop():
+    return await focus.stop()
+
+
+@app.get("/api/checkins")
+async def api_checkins():
+    return models.all_checkins()
+
+
+@app.post("/api/checkin")
+async def api_checkin(body: CheckinIn):
+    info = models.checkin(body.user_id)
+    await hub.broadcast({"type": "checkins", "data": models.all_checkins()})
+    return info
 
 
 @app.websocket("/ws")

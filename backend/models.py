@@ -1,3 +1,6 @@
+import json
+from datetime import date, timedelta
+
 from . import db
 
 TASK_FIELDS = {"title", "description", "start_time", "end_time", "due_date", "done", "is_private"}
@@ -147,3 +150,60 @@ def typing_today():
     ).fetchall()
     conn.close()
     return {r["user_id"]: {"keys": r["keys"], "minutes": r["minutes"]} for r in rows}
+
+
+def checkin(user_id):
+    conn = db.get_conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO checkins (user_id, day) VALUES (?, date('now','localtime'))",
+        (user_id,),
+    )
+    conn.commit()
+    conn.close()
+    return checkin_info(user_id)
+
+
+def checkin_info(user_id):
+    conn = db.get_conn()
+    rows = [r["day"] for r in conn.execute(
+        "SELECT day FROM checkins WHERE user_id = ?", (user_id,))]
+    conn.close()
+    days = set(rows)
+    today = date.today()
+    today_s = today.isoformat()
+    cur = today if today_s in days else today - timedelta(days=1)
+    streak = 0
+    while cur.isoformat() in days:
+        streak += 1
+        cur -= timedelta(days=1)
+    return {"streak": streak, "today": today_s in days}
+
+
+def all_checkins():
+    return {u["id"]: checkin_info(u["id"]) for u in users()}
+
+
+def create_focus_session(started_by, duration_min, start_at, end_at, participants):
+    conn = db.get_conn()
+    cur = conn.execute(
+        "INSERT INTO focus_sessions (started_by, duration_min, start_at, end_at, participants, status) "
+        "VALUES (?, ?, ?, ?, ?, 'running')",
+        (started_by, duration_min, start_at, end_at, json.dumps(participants)),
+    )
+    conn.commit()
+    sid = cur.lastrowid
+    conn.close()
+    return sid
+
+
+def update_focus_session(sid, participants=None, status=None):
+    conn = db.get_conn()
+    if participants is not None:
+        conn.execute(
+            "UPDATE focus_sessions SET participants = ? WHERE id = ?",
+            (json.dumps(participants), sid),
+        )
+    if status is not None:
+        conn.execute("UPDATE focus_sessions SET status = ? WHERE id = ?", (status, sid))
+    conn.commit()
+    conn.close()

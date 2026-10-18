@@ -48,11 +48,27 @@ def init_db():
             minutes INTEGER DEFAULT 0,
             PRIMARY KEY (user_id, day)
         );
+        CREATE TABLE IF NOT EXISTS checkins (
+            user_id INTEGER NOT NULL,
+            day TEXT NOT NULL,
+            PRIMARY KEY (user_id, day)
+        );
+        CREATE TABLE IF NOT EXISTS focus_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_by INTEGER NOT NULL,
+            duration_min INTEGER NOT NULL,
+            start_at TEXT NOT NULL,
+            end_at TEXT NOT NULL,
+            participants TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'running',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        );
         """
     )
     cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)")]
     if "description" not in cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN description TEXT DEFAULT ''")
+    conn.execute("UPDATE focus_sessions SET status = 'cancelled' WHERE status = 'running'")
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         conn.executemany(
             "INSERT INTO users (id, name, color) VALUES (?, ?, ?)",
