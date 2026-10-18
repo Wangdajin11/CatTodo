@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+backend/cattodo.db
+backend/cattodo.db-wal
+backend/cattodo.db-shm
+.DS_Store

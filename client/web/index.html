@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CatTodo · 猫猫待办</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">🐱 CatTodo <span class="brand-sub">猫猫待办</span></div>
+    <div id="presence" class="presence"></div>
+    <nav>
+      <button data-view="list" class="active">清单</button>
+      <button data-view="timeline">时间轴</button>
+      <button data-view="calendar">日历</button>
+    </nav>
+    <button id="btn-add">＋ 新建任务</button>
+  </header>
+
+  <main>
+    <section id="view-list" class="view"></section>
+    <section id="view-timeline" class="view hidden"></section>
+    <section id="view-calendar" class="view hidden"></section>
+  </main>
+
+  <div id="modal" class="hidden">
+    <div class="modal-box">
+      <h3>新建任务</h3>
+      <label>标题<input id="f-title" placeholder="例如：写完保研个人陈述"></label>
+      <label>开始时间<input id="f-start" type="datetime-local"></label>
+      <label>结束时间<input id="f-end" type="datetime-local"></label>
+      <label>截止日期<input id="f-due" type="date"></label>
+      <label class="check"><input id="f-private" type="checkbox"> 仅自己可见（TA 看不到）</label>
+      <div class="modal-actions">
+        <button id="btn-cancel" class="ghost">取消</button>
+        <button id="btn-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup" class="hidden"></div>
+  <div id="flash" class="hidden"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
