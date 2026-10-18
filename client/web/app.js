@@ -1,5 +1,6 @@
 const params = new URLSearchParams(location.search);
 const ME = { id: parseInt(params.get("user") || "1", 10) };
+const TOKEN = params.get("token") || "";
 
 let users = [];
 let tasks = [];
@@ -46,10 +47,9 @@ function fmtRange(t) {
 }
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
+  const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  if (TOKEN) headers["X-CatTodo-Token"] = TOKEN;
+  const res = await fetch(path, { ...opts, headers });
   return res.json();
 }
 
@@ -60,7 +60,8 @@ async function refreshStats() {
 
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  const qs = TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : "";
+  ws = new WebSocket(`${proto}://${location.host}/ws${qs}`);
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === "task:created") tasks.push(msg.task);
