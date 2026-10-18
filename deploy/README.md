@@ -1,60 +1,66 @@
-# VPS 部署（异地双人使用）
+# CatTodo VPS 部署指南
 
-两人在不同网络时，需要一台公网服务器（最低 1C1G 即可，如腾讯云/阿里云轻量）。
+一台两人都能访问的云服务器（推荐 Ubuntu 22.04 / 24.04，1 核 1G 起步即可）。
 
-## 服务端
-
-```bash
-# 1. 上传项目到服务器（任选）
-git clone <你的仓库地址> cattodo && cd cattodo
-
-# 2. 安装依赖
-python3 -m venv venv
-venv/bin/pip install -r backend/requirements.txt
-
-# 3. 试运行
-venv/bin/python -m uvicorn backend.app:app --host 0.0.0.0 --port 8017
-
-# 4. 用 systemd 常驻（/etc/systemd/system/cattodo.service）
-[Unit]
-Description=CatTodo Server
-After=network.target
-
-[Service]
-WorkingDirectory=/root/cattodo
-ExecStart=/root/cattodo/venv/bin/python -m uvicorn backend.app:app --host 0.0.0.0 --port 8017
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
+## 方式 A：从本地上传仓库（推荐，私有仓库免配 PAT）
 
 ```bash
-systemctl daemon-reload
-systemctl enable --now cattodo
+# 本地（Windows PowerShell）：把整个项目传到服务器（不含 venv）
+scp -r D:\FunnyThing\ToDoList root@<服务器IP>:/opt/CatTodo-src
+
+# 服务器上：
+cd /opt/CatTodo-src
+sudo CATTODO_TOKEN=自定义一串密钥 bash deploy/deploy.sh
 ```
 
-## 防火墙
+## 方式 B：服务器直接克隆私有仓库
 
-- 腾讯云/阿里云：安全组放行 TCP 8017
-- 服务器本机：`ufw allow 8017`（或 `firewall-cmd --add-port=8017/tcp`）
+在 GitHub 建一个 Personal Access Token（classic，勾选 repo 权限）：
 
-## 客户端配置（两人各自电脑）
+```bash
+sudo REPO_URL=https://<PAT>@github.com/Wangdajin11/CatTodo.git \
+     CATTODO_TOKEN=自定义一串密钥 bash deploy/deploy.sh
+```
 
-`client\config.json`：
+## 域名 + HTTPS（可选）
+
+有域名且 A 记录已指向服务器时：
+
+```bash
+sudo DOMAIN=todo.example.com CATTODO_TOKEN=密钥 bash deploy/deploy.sh
+```
+
+脚本自动配置 Nginx 反代并申请 Let's Encrypt 证书；没有域名则直接暴露 `http://<IP>:8017`，记得在云控制台安全组放行 TCP 8017。
+
+## 客户端配置
+
+部署完成后，两人各自编辑 `client/config.json`：
 
 ```json
 {
-  "server_url": "http://<服务器公网IP>:8017",
-  "user_id": 1
+  "server_url": "http://<服务器IP>:8017",
+  "user_id": 1,
+  "threshold": 300,
+  "token": "部署时设定的密钥"
 }
 ```
 
-另一人填 `user_id: 2`。然后 `start_client.bat` 启动即可。
+- 一人 `user_id` 为 1，另一人改为 2；
+- 有域名时 `server_url` 用 `https://你的域名`；
+- 两人 token 必须相同；填错或不填会被服务端拒绝（401）。
 
-## 安全建议（上线前必做）
+## 安全说明
 
-当前版本未加鉴权，仅适合可信两人使用。建议：
+- `CATTODO_TOKEN` 是 API 与 WebSocket 的共享密钥，存于服务器 `/etc/cattodo.env`（权限 600）；
+- Token 仅保护数据接口（`/api`、`/ws`），页面外壳本身不鉴权；
+- 公网裸 HTTP 部署时 token 会明文传输，条件允许请使用域名 + HTTPS；
+- 不设置 `CATTODO_TOKEN` 时服务端不鉴权，仅限本机 / 受信局域网使用。
 
-1. 在 `backend/app.py` 增加简单 Token 校验（`?token=` 或 Header）
-2. 若怕 IP 暴露，配置 Nginx 反代 + HTTPS（域名或 IP 证书）
+## 常用运维
+
+```bash
+sudo systemctl status cattodo       # 状态
+sudo systemctl restart cattodo      # 重启
+sudo journalctl -u cattodo -f       # 日志
+sudo cat /etc/cattodo.env           # 查看 token
+```
