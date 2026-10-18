@@ -592,7 +592,7 @@ const CAT_TIPS = [
 function showCat(message, catName) {
   const n = catName || CATS[Math.floor(Math.random() * CATS.length)];
   const p = $("#popup");
-  p.innerHTML = `<img src="/static/assets/cats/${n}.svg" alt="猫猫"><div>${esc(message)}</div>`;
+  p.innerHTML = `<img src="/static/assets/cats/${n}.jpg" alt="猫猫"><div>${esc(message)}</div>`;
   p.classList.remove("hidden");
   p.classList.add("show");
   clearTimeout(p._t);

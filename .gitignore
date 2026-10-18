@@ -6,3 +6,6 @@ backend/cattodo.db
 backend/cattodo.db-wal
 backend/cattodo.db-shm
 .DS_Store
+
+# 设计过程文件
+.creative-design/

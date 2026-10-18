@@ -44,7 +44,7 @@ def main():
     assert all(t["id"] != t1["id"] for t in after), "delete failed"
     print("delete: ok")
 
-    for url in ["/", "/static/app.js", "/static/style.css", "/static/assets/cats/cat2.svg"]:
+    for url in ["/", "/static/app.js", "/static/style.css", "/static/assets/cats/cat2.jpg"]:
         code = urllib.request.urlopen(BASE + url, timeout=5).status
         print(url, code)
 

@@ -48,7 +48,7 @@ typing_daily(user_id, day, keys, minutes)  -- PK(user_id, day)，当天累计
 
 1. **重叠显示**：时间轴按人分泳道（用户 1 上、用户 2 下），同一时间段两人任务各自成条并排，重叠自然可见
 2. **打字统计**：pynput 全局钩子（不进 UI 焦点也统计），每 300 键 flush 一次到 `/api/typing`；服务端按天累计，广播增量让双方实时看到
-3. **小猫弹窗**：客户端本地累计，每满阈值调用 `window.__catPopup(total)`，随机贴纸 + 文案，4 秒自动消失；贴纸为 `client/web/assets/cats/*.svg`
+3. **小猫弹窗**：客户端本地累计，每满阈值调用 `window.__catPopup(total)`，随机贴纸 + 文案，4 秒自动消失；贴纸为 `client/web/assets/cats/*.jpg`（512px AI 插画贴纸）
 4. **身份**：每台机器 `client/config.json` 指定 `user_id`，前端以 `?user=` 查询参数读取
 
 ## 安全与隐私
