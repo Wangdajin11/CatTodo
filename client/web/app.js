@@ -5,6 +5,9 @@ let users = [];
 let tasks = [];
 let presence = {};
 let stats = {};
+let focusSession = null;
+let checkins = {};
+let focusDuration = 25;
 let ws = null;
 let currentView = "list";
 let calCursor = new Date();
@@ -72,6 +75,20 @@ function connectWS() {
       if (!stats[msg.user_id]) stats[msg.user_id] = { keys: 0, minutes: 0 };
       stats[msg.user_id].keys += msg.keys;
     }
+    if (msg.type === "focus:update") {
+      focusSession = msg.session.status === "running" ? msg.session : null;
+      if (currentView === "focus") renderFocus();
+    }
+    if (msg.type === "focus:finished") {
+      const wasIn = msg.session.participants.includes(ME.id);
+      focusSession = null;
+      if (wasIn) showCat(msg.session.participants.length > 1 ? "一起完成了 " + msg.session.duration_min + " 分钟专注，太棒啦！" : "完成了 " + msg.session.duration_min + " 分钟专注，喵～", "cat5");
+      if (currentView === "focus") renderFocus();
+    }
+    if (msg.type === "checkins") {
+      checkins = msg.data;
+      if (currentView === "focus") renderFocus();
+    }
     render();
     flash();
   };
@@ -83,6 +100,7 @@ function render() {
   if (currentView === "list") renderList();
   if (currentView === "timeline") renderTimeline();
   if (currentView === "calendar") renderCalendar();
+  if (currentView === "focus") renderFocus();
 }
 
 function renderPresence() {
@@ -318,6 +336,115 @@ function renderCalendar() {
   el.appendChild(grid);
 }
 
+function focusRemaining() {
+  if (!focusSession) return focusDuration * 60;
+  const end = new Date(focusSession.end_at).getTime();
+  return Math.max(0, Math.round((end - Date.now()) / 1000));
+}
+
+function mmss(sec) {
+  return `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
+}
+
+function focusTick() {
+  const remEl = $("#focus-remaining");
+  const ringEl = $("#focus-ring-progress");
+  if (!remEl) return;
+  if (!focusSession) {
+    remEl.textContent = mmss(focusDuration * 60);
+    if (ringEl) ringEl.style.strokeDashoffset = "0";
+    return;
+  }
+  const rem = focusRemaining();
+  remEl.textContent = mmss(rem);
+  const total = focusSession.duration_min * 60;
+  const C = 2 * Math.PI * 100;
+  const progress = total > 0 ? (total - rem) / total : 0;
+  if (ringEl) ringEl.style.strokeDashoffset = String(C * (1 - progress));
+}
+
+function renderFocus() {
+  const el = $("#view-focus");
+  const running = focusSession;
+  const inSession = running && running.participants.includes(ME.id);
+  const starter = running && users.find((u) => u.id === running.started_by);
+
+  const durChips = [25, 45, 60].map((d) =>
+    `<button class="dur-chip ${d === focusDuration ? "active" : ""}" data-focus-dur="${d}" ${running ? "disabled" : ""}>${d} 分钟</button>`
+  ).join("");
+
+  let controls = "";
+  if (!running) {
+    controls = `<div class="dur-row">${durChips}</div>
+      <button class="focus-primary" data-act="focus-start">开始一起自习</button>
+      <div class="focus-state" id="focus-state">准备好就开始，TA 会看到你的自习</div>`;
+  } else {
+    const who = running.participants.map((id) =>
+      `<span class="focus-who" style="color:${colorOf(id)}">${esc(nameOf(id))} 在自习中</span>`
+    ).join("");
+    controls = `<div class="focus-people">${who}</div>`;
+    if (inSession) {
+      controls += `<div class="focus-state" id="focus-state">${running.started_by === ME.id ? "你发起的自习，等 TA 加入" : "你们正在一起自习，加油～"}</div>
+        <button class="focus-ghost" data-act="focus-stop">结束自习</button>`;
+    } else {
+      controls += `<div class="focus-state" id="focus-state">${esc(starter ? starter.name : "")} 发起了 ${running.duration_min} 分钟自习</div>
+        <button class="focus-primary" data-act="focus-join">加入自习</button>`;
+    }
+  }
+
+  const streakCards = users.map((u) => {
+    const info = checkins[u.id] || { streak: 0, today: false };
+    const mine = u.id === ME.id;
+    const btn = mine && !info.today
+      ? `<button class="checkin-btn" data-act="checkin">打卡</button>`
+      : mine ? `<span class="checked-tag">今日已打卡 ✓</span>` : "";
+    return `<div class="streak-card">
+      <div class="streak-name" style="color:${u.color}">${esc(u.name)}</div>
+      <div class="streak-num">🔥 ${info.streak} 天</div>
+      <div class="streak-tip">${info.today ? "今天已打卡" : "今天还没打卡"}</div>
+      ${btn}
+    </div>`;
+  }).join("");
+
+  const threshold = localStorage.getItem("cattodo_threshold") || "300";
+  const opts = [100, 200, 300, 500].map((n) =>
+    `<option value="${n}" ${String(n) === String(threshold) ? "selected" : ""}>${n} 键</option>`
+  ).join("");
+
+  el.innerHTML = `
+  <div class="focus-wrap">
+    <div class="focus-card">
+      <div class="focus-ring">
+        <svg width="240" height="240" viewBox="0 0 240 240">
+          <circle cx="120" cy="120" r="100" class="ring-bg" fill="none" stroke-width="14"/>
+          <circle id="focus-ring-progress" cx="120" cy="120" r="100" class="ring-fg" fill="none" stroke-width="14"
+            stroke-linecap="round" transform="rotate(-90 120 120)"/>
+        </svg>
+        <div class="focus-remaining" id="focus-remaining">25:00</div>
+      </div>
+      ${controls}
+    </div>
+    <div class="focus-side">
+      <div class="focus-panel">
+        <h4>打卡连击</h4>
+        <div class="streak-row">${streakCards}</div>
+        <div class="panel-tip">完成一次自习会自动打卡</div>
+      </div>
+      <div class="focus-panel">
+        <h4>打字暖心提醒</h4>
+        <div class="setting-row">
+          <label>每敲够
+            <select id="threshold-select">${opts}</select>
+            弹一次小猫
+          </label>
+          <div class="panel-tip" id="threshold-tip">仅桌面端生效</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  focusTick();
+}
+
 function openModal() {
   $("#modal").classList.remove("hidden");
   const now = new Date();
@@ -354,15 +481,20 @@ const CAT_TIPS = [
   "喵喵！已经 N 次了，记得喝口水 ☕",
   "打字好快！歇 5 秒，揉揉眼睛再看屏幕",
 ];
-window.__catPopup = function (total) {
-  const n = CATS[Math.floor(Math.random() * CATS.length)];
-  const tip = CAT_TIPS[Math.floor(Math.random() * CAT_TIPS.length)].replace(/N/g, total);
+
+function showCat(message, catName) {
+  const n = catName || CATS[Math.floor(Math.random() * CATS.length)];
   const p = $("#popup");
-  p.innerHTML = `<img src="/static/assets/cats/${n}.svg" alt="猫猫"><div>${tip}</div>`;
+  p.innerHTML = `<img src="/static/assets/cats/${n}.svg" alt="猫猫"><div>${esc(message)}</div>`;
   p.classList.remove("hidden");
   p.classList.add("show");
   clearTimeout(p._t);
   p._t = setTimeout(() => p.classList.remove("show"), 4000);
+}
+
+window.__catPopup = function (total) {
+  const tip = CAT_TIPS[Math.floor(Math.random() * CAT_TIPS.length)].replace(/N/g, total);
+  showCat(tip);
 };
 
 function flash() {
@@ -394,9 +526,27 @@ document.addEventListener("click", (e) => {
     renderCalendar();
     return;
   }
+  const dur = e.target.closest("[data-focus-dur]");
+  if (dur) {
+    focusDuration = parseInt(dur.dataset.focusDur, 10);
+    renderFocus();
+    return;
+  }
   const act = e.target.closest("[data-act]");
   if (act) {
     const id = parseInt(act.dataset.id, 10);
+    if (act.dataset.act === "focus-start") {
+      api("/api/focus/start", { method: "POST", body: JSON.stringify({ user_id: ME.id, duration_min: focusDuration }) });
+    }
+    if (act.dataset.act === "focus-join") {
+      api("/api/focus/join", { method: "POST", body: JSON.stringify({ user_id: ME.id }) });
+    }
+    if (act.dataset.act === "focus-stop") {
+      api("/api/focus/stop", { method: "POST" });
+    }
+    if (act.dataset.act === "checkin") {
+      api("/api/checkin", { method: "POST", body: JSON.stringify({ user_id: ME.id }) });
+    }
     if (act.dataset.act === "toggle") {
       const t = tasks.find((x) => x.id === id);
       api(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify({ done: t.done ? 0 : 1 }) });
@@ -452,20 +602,48 @@ document.addEventListener("visibilitychange", () => {
   pushPresence();
 });
 
+document.addEventListener("change", (e) => {
+  if (e.target.id === "threshold-select") {
+    const n = parseInt(e.target.value, 10);
+    localStorage.setItem("cattodo_threshold", n);
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.set_threshold) {
+      window.pywebview.api.set_threshold(n);
+      $("#threshold-tip").textContent = "已生效 ✓";
+    } else {
+      $("#threshold-tip").textContent = "浏览器预览不可用，桌面端生效";
+    }
+  }
+});
+
+async function loadThreshold() {
+  try {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.get_threshold) {
+      const n = await window.pywebview.api.get_threshold();
+      localStorage.setItem("cattodo_threshold", n);
+    }
+  } catch (e) { /* 浏览器预览时忽略 */ }
+}
+
 async function boot() {
-  const [u, t, p, s] = await Promise.all([
+  const [u, t, p, s, f, c] = await Promise.all([
     api("/api/users"),
     api("/api/tasks?viewer_id=" + ME.id),
     api("/api/presence"),
     api("/api/stats/today"),
+    api("/api/focus/current"),
+    api("/api/checkins"),
   ]);
   users = u;
   tasks = t;
   presence = p;
   stats = s;
+  focusSession = f;
+  checkins = c || {};
+  await loadThreshold();
   connectWS();
   render();
   setInterval(refreshStats, 10000);
+  setInterval(focusTick, 1000);
 }
 
 boot();
