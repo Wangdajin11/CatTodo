@@ -16,7 +16,7 @@
 - **每周双人复盘**：「复盘」页按周统计双方完成任务数、番茄钟数与分钟、打卡天数、按键总数，可翻看上一周
 - **临期提醒**：清单顶部显示已逾期 / 今天截止 / 明天截止的任务；每天首次启动弹出小猫提醒一次
 - **任务编辑**：本人任务可点 ✎ 修改标题、描述、时间、截止日与隐私
-- **日历联动**：任务起止时间 + 截止日期，时间轴与月历双展示（二期接飞书日历同步）
+- **日历联动**：任务起止时间 + 截止日期，时间轴与月历双展示
 
 ## 技术栈
 
@@ -43,7 +43,11 @@ start_server.bat        :: 或 venv\Scripts\python -m uvicorn backend.app:app --
 start_client.bat
 ```
 
-**两人配置**：`client\config.json` 中，一方填 `user_id: 1`、另一方填 `user_id: 2`；异地使用时把 `server_url` 改成服务器地址（见 `deploy\README.md`）。
+**两人配置**：`client\config.json` 中，一方填 `user_id: 1`、另一方填 `user_id: 2`；异地使用时把 `server_url` 改成服务器地址并填 `token`（见 `deploy\README.md`）。
+
+## VPS 部署（异地）
+
+服务器上执行 `sudo CATTODO_TOKEN=你的密钥 bash deploy/deploy.sh` 即可一键完成（systemd 常驻、防火墙、可选 Nginx + HTTPS 域名）；`CATTODO_TOKEN` 是 API 与 WebSocket 的共享密钥，客户端配置同样的 token，未配置时本机开发免鉴权。
 
 ## 数据模型
 
@@ -59,9 +63,9 @@ start_client.bat
 - [x] M1 双人实时面板 + 时间轴/日历视图
 - [x] M1.1 时间轴缩放、任务描述/子任务、自定义状态文字、打字统计实时显示
 - [x] M2 共享番茄钟「一起自习」、打卡连击、打字阈值可调
-- [x] M3 截止日双方提醒、专注超时暖心提醒与打气、每周双人复盘、任务编辑（当前）
+- [x] M3 截止日双方提醒、专注超时暖心提醒与打气、每周双人复盘、任务编辑
 - [x] M2.1 小猫贴纸包换用 AI 设计稿（统一奶油橘白 IP 形象，6 张 512px JPG）
-- [ ] M4 VPS 一键部署（异地双人联调）
+- [x] M4 VPS 一键部署（Token 鉴权 + systemd + Nginx/HTTPS，异地双人联调）
 
 ## 故障排查
 
