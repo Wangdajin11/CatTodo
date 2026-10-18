@@ -54,15 +54,20 @@ def main():
                 pass
 
     logging.info("client starting, user_id=%s", cfg["user_id"])
+    token = str(cfg.get("token", "")).strip()
     tracker = start_typing_tracker(
         cfg["server_url"], cfg["user_id"],
         threshold=int(cfg.get("threshold", 300)),
+        token=token,
         on_threshold=on_threshold,
     )
     api = Api(cfg, tracker)
+    qs = f"user={cfg['user_id']}"
+    if token:
+        qs += f"&token={token}"
     webview.create_window(
         "CatTodo · 猫猫待办",
-        cfg["server_url"] + f"?user={cfg['user_id']}",
+        cfg["server_url"] + f"?{qs}",
         width=1280,
         height=820,
         js_api=api,

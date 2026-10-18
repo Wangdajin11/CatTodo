@@ -1,17 +1,21 @@
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import db, models
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "client" / "web"
+
+# 部署到公网时通过环境变量 CATTODO_TOKEN 设置共享密钥；为空表示不鉴权（本机/局域网）
+AUTH_TOKEN = os.environ.get("CATTODO_TOKEN", "").strip()
 
 
 @asynccontextmanager
@@ -21,6 +25,15 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="CatTodo", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def token_auth(request, call_next):
+    if AUTH_TOKEN and request.url.path.startswith("/api"):
+        provided = request.headers.get("x-cattodo-token") or request.query_params.get("token")
+        if provided != AUTH_TOKEN:
+            return JSONResponse({"detail": "invalid token"}, status_code=401)
+    return await call_next(request)
 
 
 class TaskIn(BaseModel):
@@ -344,6 +357,9 @@ async def api_checkin(body: CheckinIn):
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
+    if AUTH_TOKEN and ws.query_params.get("token") != AUTH_TOKEN:
+        await ws.close(code=1008)
+        return
     await hub.connect(ws)
     try:
         while True:

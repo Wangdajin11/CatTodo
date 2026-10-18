@@ -11,12 +11,13 @@ logger = logging.getLogger("cattodo")
 
 class TypingTracker:
     def __init__(self, server_url, user_id, threshold=300, flush_interval=5,
-                 on_threshold=None):
+                 on_threshold=None, token=""):
         self.server_url = server_url
         self.user_id = user_id
         self.threshold = threshold
         self.flush_interval = flush_interval
         self.on_threshold = on_threshold
+        self.token = token or ""
         self.keys = 0
         self.total = 0
         self.session_start = time.time()
@@ -30,10 +31,13 @@ class TypingTracker:
             {"user_id": self.user_id, "keys": count, "minutes": minutes}
         ).encode("utf-8")
         try:
+            headers = {"Content-Type": "application/json"}
+            if self.token:
+                headers["X-CatTodo-Token"] = self.token
             req = urllib.request.Request(
                 self.server_url + "/api/typing",
                 data=payload,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
             )
             urllib.request.urlopen(req, timeout=5)
             logger.info("flushed %s keys", count)
@@ -60,9 +64,11 @@ class TypingTracker:
             self._flush()
 
 
-def start_typing_tracker(server_url, user_id, threshold=300, on_threshold=None):
+def start_typing_tracker(server_url, user_id, threshold=300, on_threshold=None,
+                         token=""):
     tracker = TypingTracker(
-        server_url, user_id, threshold=threshold, on_threshold=on_threshold
+        server_url, user_id, threshold=threshold,
+        on_threshold=on_threshold, token=token,
     )
     thread = threading.Thread(target=tracker.run, daemon=True)
     thread.start()
