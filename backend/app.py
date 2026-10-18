@@ -76,6 +76,13 @@ class CheckinIn(BaseModel):
     user_id: int
 
 
+class CheerIn(BaseModel):
+    from_user_id: int
+
+
+OVERTIME_SECONDS = 45 * 60
+
+
 class Hub:
     def __init__(self):
         self.conns: set[WebSocket] = set()
@@ -104,6 +111,7 @@ class FocusManager:
     def __init__(self):
         self.current = None
         self._task = None
+        self._overtime_task = None
 
     def _session(self, sid, started_by, duration, start, end, participants):
         return {
@@ -128,6 +136,9 @@ class FocusManager:
         )
         self.current = self._session(sid, user_id, duration_min, start, end, participants)
         self._task = asyncio.create_task(self._finish_at(sid, end))
+        overtime_at = start + timedelta(seconds=OVERTIME_SECONDS)
+        if overtime_at < end:
+            self._overtime_task = asyncio.create_task(self._overtime_at(sid, overtime_at))
         await hub.broadcast({"type": "focus:update", "session": self.current})
         return self.current
 
@@ -145,18 +156,34 @@ class FocusManager:
             return None
         if self._task:
             self._task.cancel()
+        if self._overtime_task:
+            self._overtime_task.cancel()
         models.update_focus_session(self.current["id"], status="cancelled")
         self.current["status"] = "cancelled"
         await hub.broadcast({"type": "focus:update", "session": self.current})
         self.current = None
         self._task = None
+        self._overtime_task = None
         return None
+
+    async def _overtime_at(self, sid, at):
+        wait = max(0.0, (at - datetime.now(timezone.utc)).total_seconds())
+        await asyncio.sleep(wait)
+        if self.current is None or self.current["id"] != sid:
+            return
+        await hub.broadcast({
+            "type": "focus:overtime",
+            "session": self.current,
+            "participants": self.current["participants"],
+        })
 
     async def _finish_at(self, sid, end):
         wait = max(0.0, (end - datetime.now(timezone.utc)).total_seconds())
         await asyncio.sleep(wait)
         if self.current is None or self.current["id"] != sid:
             return
+        if self._overtime_task:
+            self._overtime_task.cancel()
         models.update_focus_session(sid, status="done")
         participants = self.current["participants"]
         for uid in participants:
@@ -164,6 +191,7 @@ class FocusManager:
         finished = dict(self.current, status="done")
         self.current = None
         self._task = None
+        self._overtime_task = None
         await hub.broadcast({"type": "focus:finished", "session": finished})
         await hub.broadcast({"type": "checkins", "data": models.all_checkins()})
 
@@ -191,6 +219,11 @@ async def api_create(task: TaskIn):
     t = models.create_task(**task.model_dump())
     await hub.broadcast({"type": "task:created", "task": t})
     return t
+
+
+@app.get("/api/tasks/{task_id}")
+async def api_task_detail(task_id: int):
+    return models.get_task(task_id)
 
 
 @app.patch("/api/tasks/{task_id}")
@@ -284,6 +317,17 @@ async def api_focus_join(body: FocusJoinIn):
 @app.post("/api/focus/stop")
 async def api_focus_stop():
     return await focus.stop()
+
+
+@app.post("/api/focus/cheer")
+async def api_focus_cheer(body: CheerIn):
+    await hub.broadcast({"type": "focus:cheer", "from": body.from_user_id})
+    return {"ok": True}
+
+
+@app.get("/api/review/weekly")
+async def api_weekly_review(week_offset: int = 0):
+    return models.weekly_review(week_offset)
 
 
 @app.get("/api/checkins")

@@ -68,6 +68,8 @@ def init_db():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)")]
     if "description" not in cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN description TEXT DEFAULT ''")
+    if "completed_at" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN completed_at TEXT")
     conn.execute("UPDATE focus_sessions SET status = 'cancelled' WHERE status = 'running'")
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         conn.executemany(

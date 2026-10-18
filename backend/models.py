@@ -71,6 +71,11 @@ def update_task(task_id, changes):
         return get_task(task_id)
     sets = ", ".join(f"{k} = ?" for k in keys)
     values = [changes[k] for k in keys]
+    if "done" in changes:
+        if changes["done"]:
+            sets += ", completed_at = datetime('now','localtime')"
+        else:
+            sets += ", completed_at = NULL"
     conn.execute(
         f"UPDATE tasks SET {sets}, updated_at = datetime('now','localtime') WHERE id = ?",
         (*values, task_id),
@@ -207,3 +212,47 @@ def update_focus_session(sid, participants=None, status=None):
         conn.execute("UPDATE focus_sessions SET status = ? WHERE id = ?", (status, sid))
     conn.commit()
     conn.close()
+
+
+def weekly_review(week_offset=0):
+    today = date.today()
+    monday = today - timedelta(days=today.weekday(), weeks=week_offset)
+    sunday = monday + timedelta(days=6)
+    start_s = monday.isoformat() + " 00:00:00"
+    end_s = sunday.isoformat() + " 23:59:59"
+    conn = db.get_conn()
+    result = {}
+    for u in users():
+        uid = u["id"]
+        done_count = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE owner_id = ? AND completed_at BETWEEN ? AND ?",
+            (uid, start_s, end_s),
+        ).fetchone()[0]
+        keys_row = conn.execute(
+            "SELECT COALESCE(SUM(keys), 0) FROM typing_daily WHERE user_id = ? AND day BETWEEN ? AND ?",
+            (uid, monday.isoformat(), sunday.isoformat()),
+        ).fetchone()[0]
+        checkin_days = conn.execute(
+            "SELECT COUNT(*) FROM checkins WHERE user_id = ? AND day BETWEEN ? AND ?",
+            (uid, monday.isoformat(), sunday.isoformat()),
+        ).fetchone()[0]
+        focus_rows = conn.execute(
+            "SELECT duration_min, participants FROM focus_sessions "
+            "WHERE status = 'done' AND created_at BETWEEN ? AND ?",
+            (start_s, end_s),
+        ).fetchall()
+        focus_count = 0
+        focus_minutes = 0
+        for r in focus_rows:
+            if uid in json.loads(r["participants"]):
+                focus_count += 1
+                focus_minutes += r["duration_min"]
+        result[uid] = {
+            "tasks_done": done_count,
+            "keys": keys_row,
+            "checkin_days": checkin_days,
+            "focus_count": focus_count,
+            "focus_minutes": focus_minutes,
+        }
+    conn.close()
+    return {"monday": monday.isoformat(), "sunday": sunday.isoformat(), "users": result}

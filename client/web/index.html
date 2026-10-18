@@ -15,6 +15,7 @@
       <button data-view="timeline">时间轴</button>
       <button data-view="calendar">日历</button>
       <button data-view="focus">专注</button>
+      <button data-view="review">复盘</button>
     </nav>
     <button id="btn-add">＋ 新建任务</button>
   </header>
@@ -24,11 +25,12 @@
     <section id="view-timeline" class="view hidden"></section>
     <section id="view-calendar" class="view hidden"></section>
     <section id="view-focus" class="view hidden"></section>
+    <section id="view-review" class="view hidden"></section>
   </main>
 
   <div id="modal" class="hidden">
     <div class="modal-box">
-      <h3>新建任务</h3>
+      <h3 id="modal-title">新建任务</h3>
       <label>标题<input id="f-title" placeholder="例如：写完保研个人陈述"></label>
       <label>描述<textarea id="f-desc" rows="3" placeholder="背景、要求、备注……（可留空）"></textarea></label>
       <label>开始时间<input id="f-start" type="datetime-local"></label>
