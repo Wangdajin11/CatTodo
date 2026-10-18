@@ -8,6 +8,8 @@ let stats = {};
 let ws = null;
 let currentView = "list";
 let calCursor = new Date();
+let hourWidth = 48;
+const expanded = new Set();
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) =>
@@ -35,7 +37,7 @@ function fmtRange(t) {
   const parts = [];
   if (t.start_time) parts.push(t.start_time.slice(11));
   if (t.end_time) parts.push(t.end_time.slice(11));
-  return parts.join(" ~ ");
+  return parts.length ? parts.join(" ~ ") : "全天";
 }
 
 async function api(path, opts = {}) {
@@ -46,6 +48,11 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
+async function refreshStats() {
+  stats = await api("/api/stats/today");
+  renderPresence();
+}
+
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws`);
@@ -54,11 +61,16 @@ function connectWS() {
     if (msg.type === "task:created") tasks.push(msg.task);
     if (msg.type === "task:updated") tasks = tasks.map((t) => (t.id === msg.task.id ? msg.task : t));
     if (msg.type === "task:deleted") tasks = tasks.filter((t) => t.id !== msg.id);
-    if (msg.type === "presence") presence[msg.user_id] = msg.status;
+    if (msg.type === "subtask:changed") {
+      const t = tasks.find((x) => x.id === msg.task_id);
+      if (t) t.subtasks = msg.subtasks;
+    }
+    if (msg.type === "presence") {
+      presence[msg.user_id] = { status: msg.status, text: msg.status_text || "" };
+    }
     if (msg.type === "typing") {
       if (!stats[msg.user_id]) stats[msg.user_id] = { keys: 0, minutes: 0 };
       stats[msg.user_id].keys += msg.keys;
-      stats[msg.user_id].minutes += msg.minutes;
     }
     render();
     flash();
@@ -76,26 +88,52 @@ function render() {
 function renderPresence() {
   const el = $("#presence");
   const statusText = { focus: "专注中", away: "摸鱼中", offline: "离线" };
+  const items = users
+    .map((u) => {
+      const p = presence[u.id] || { status: "offline", text: "" };
+      const keys = (stats[u.id] && stats[u.id].keys) || 0;
+      const extra = p.text ? " · " + esc(p.text) : "";
+      return `<div class="presence-item">
+        <span class="dot ${p.status}"></span>
+        <span class="pname" style="color:${u.color}">${esc(u.name)}</span>
+        <span class="pstatus">${statusText[p.status] || "离线"}${extra} · 今日 ${keys} 键</span>
+      </div>`;
+    })
+    .join("");
+  const mine = presence[ME.id] || { status: "offline", text: "" };
   el.innerHTML =
-    users
-      .map((u) => {
-        const st = presence[u.id] || "offline";
-        const keys = (stats[u.id] && stats[u.id].keys) || 0;
-        return `<div class="presence-item">
-          <span class="dot ${st}"></span>
-          <span class="pname" style="color:${u.color}">${esc(u.name)}</span>
-          <span class="pstatus">${statusText[st] || "离线"}${u.id === ME.id ? "" : " · 今日 " + keys + " 字"}</span>
-        </div>`;
-      })
-      .join("") +
+    items +
     `<select id="my-status">
       <option value="focus">我的状态：专注</option>
       <option value="away">我的状态：摸鱼</option>
       <option value="offline">我的状态：离线</option>
-    </select>`;
+    </select>
+    <input id="my-status-text" class="status-text" maxlength="30" placeholder="在做什么？如：背单词" value="${esc(mine.text || "")}">`;
   const sel = $("#my-status");
-  sel.value = presence[ME.id] || "offline";
-  sel.onchange = () => api("/api/presence", { method: "POST", body: JSON.stringify({ user_id: ME.id, status: sel.value }) });
+  sel.value = mine.status || "offline";
+  sel.onchange = () => pushPresence();
+  const input = $("#my-status-text");
+  let timer = null;
+  input.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(pushPresence, 500);
+  };
+}
+
+function pushPresence() {
+  const status = $("#my-status").value;
+  const text = $("#my-status-text").value;
+  api("/api/presence", {
+    method: "POST",
+    body: JSON.stringify({ user_id: ME.id, status, status_text: text }),
+  });
+}
+
+function subProgress(t) {
+  const subs = t.subtasks || [];
+  if (!subs.length) return "";
+  const done = subs.filter((s) => s.done).length;
+  return `<span class="sub-badge">${done}/${subs.length}</span>`;
 }
 
 function renderList() {
@@ -114,8 +152,9 @@ function renderList() {
     card.innerHTML = `
       <div class="task-color" style="background:${colorOf(t.owner_id)}"></div>
       <div class="task-body">
-        <div class="task-title">${esc(t.title)}${t.is_private ? '<span class="badge">仅自己</span>' : ""}</div>
-        <div class="task-meta">${esc(fmtRange(t))}${t.due_date ? " · 截止 " + esc(t.due_date) : ""} · ${esc(nameOf(t.owner_id))}</div>
+        <div class="task-title">${esc(t.title)}${subProgress(t)}${t.is_private ? '<span class="badge">仅自己</span>' : ""}</div>
+        <div class="task-meta">${esc(fmtRange(t))}${t.due_date ? " · 截止 " + esc(t.due_date) : ""} · ${esc(nameOf(t.owner_id))}${(t.description || (t.subtasks || []).length) ? " · ▸" : ""}</div>
+        ${expanded.has(t.id) ? expandedHtml(t) : ""}
       </div>
       <button class="btn-done" data-act="toggle" data-id="${t.id}">${t.done ? "✓ 已完成" : "完成"}</button>
       ${t.owner_id === ME.id ? `<button class="btn-del" data-act="del" data-id="${t.id}">×</button>` : ""}`;
@@ -123,14 +162,66 @@ function renderList() {
   });
 }
 
+function expandedHtml(t) {
+  const subs = t.subtasks || [];
+  const desc = t.description ? `<div class="task-desc">${esc(t.description)}</div>` : "";
+  const rows = subs
+    .map(
+      (s) => `<div class="sub-row${s.done ? " checked" : ""}">
+        <input type="checkbox" data-act="sub-toggle" data-id="${s.id}" ${s.done ? "checked" : ""}>
+        <span>${esc(s.title)}</span>
+        <button class="sub-del" data-act="sub-del" data-id="${s.id}">×</button>
+      </div>`
+    )
+    .join("");
+  return `<div class="task-expand">
+    ${desc}
+    <div class="sub-list">${rows}</div>
+    <div class="sub-add">
+      <input type="text" placeholder="添加子任务，回车确认" data-sub-input="${t.id}" maxlength="60">
+      <button data-act="sub-add" data-id="${t.id}">添加</button>
+    </div>
+  </div>`;
+}
+
 function renderTimeline() {
   const el = $("#view-timeline");
   el.innerHTML = "";
+  const toolbar = document.createElement("div");
+  toolbar.className = "tl-toolbar";
+  toolbar.innerHTML = `<button id="tl-zoom-out">－</button><span>${hourWidth}px/时</span><button id="tl-zoom-in">＋</button><span class="tl-hint">Ctrl + 滚轮缩放</span>`;
+  el.appendChild(toolbar);
+
+  const scroll = document.createElement("div");
+  scroll.className = "tl-scroll";
+  scroll.appendChild(rulerRow());
   for (let i = -3; i <= 3; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
-    el.appendChild(dayRow(d));
+    scroll.appendChild(dayRow(d));
   }
+  scroll.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    hourWidth = Math.min(160, Math.max(20, hourWidth + (e.deltaY < 0 ? 8 : -8)));
+    renderTimeline();
+  }, { passive: false });
+  el.appendChild(scroll);
+}
+
+function rulerRow() {
+  const row = document.createElement("div");
+  row.className = "day-row tl-ruler";
+  row.innerHTML = `<div class="day-label"></div><div class="day-track" style="width:${24 * hourWidth}px;height:18px"></div>`;
+  const track = row.querySelector(".day-track");
+  for (let h = 0; h < 24; h += 2) {
+    const tick = document.createElement("div");
+    tick.className = "hour-tick";
+    tick.style.left = h * hourWidth + "px";
+    tick.textContent = `${h}:00`;
+    track.appendChild(tick);
+  }
+  return row;
 }
 
 function dayRow(date) {
@@ -144,15 +235,18 @@ function dayRow(date) {
 
   const track = document.createElement("div");
   track.className = "day-track";
+  track.style.width = 24 * hourWidth + "px";
+  track.style.height = "112px";
   for (let h = 0; h < 24; h++) {
     const cell = document.createElement("div");
     cell.className = "hour-cell";
-    cell.style.left = (h / 24) * 100 + "%";
+    cell.style.left = h * hourWidth + "px";
     track.appendChild(cell);
   }
 
   const ymd = fmtDate(date);
   users.forEach((u) => {
+    const lane = users.findIndex((x) => x.id === u.id);
     const laneTasks = tasks.filter(
       (t) => t.owner_id === u.id && t.start_time && !t.done && t.start_time.slice(0, 10) === ymd
     );
@@ -163,9 +257,11 @@ function dayRow(date) {
       if (endMin > 1440) endMin = 1440;
       const bar = document.createElement("div");
       bar.className = "task-bar";
-      bar.style.left = (startMin / 1440) * 100 + "%";
-      bar.style.width = Math.max(((endMin - startMin) / 1440) * 100 - 0.15, 1.5) + "%";
-      bar.style.top = 20 + users.findIndex((x) => x.id === u.id) * 26 + "px";
+      bar.style.left = (startMin / 60) * hourWidth + "px";
+      bar.style.width = Math.max(((endMin - startMin) / 60) * hourWidth - 2, 24) + "px";
+      bar.style.top = 22 + lane * 32 + "px";
+      bar.style.height = "24px";
+      bar.style.lineHeight = "24px";
       bar.style.background = colorOf(u.id);
       bar.innerHTML = `<span>${esc(t.title)}</span>`;
       bar.title = `${t.title} · ${t.start_time} ~ ${t.end_time || ""}`;
@@ -239,6 +335,7 @@ async function saveTask() {
   const payload = {
     title,
     owner_id: ME.id,
+    description: $("#f-desc").value.trim(),
     start_time: $("#f-start").value ? $("#f-start").value.replace("T", " ") : null,
     end_time: $("#f-end").value ? $("#f-end").value.replace("T", " ") : null,
     due_date: $("#f-due").value || null,
@@ -246,9 +343,7 @@ async function saveTask() {
   };
   await api("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
   closeModal();
-  $("#f-title").value = "";
-  $("#f-end").value = "";
-  $("#f-due").value = "";
+  ["f-title", "f-desc", "f-end", "f-due"].forEach((id) => ($(`#${id}`).value = ""));
   $("#f-private").checked = false;
 }
 
@@ -279,6 +374,9 @@ function flash() {
 }
 
 document.addEventListener("click", (e) => {
+  if (e.target.id === "tl-zoom-in") { hourWidth = Math.min(160, hourWidth + 12); renderTimeline(); return; }
+  if (e.target.id === "tl-zoom-out") { hourWidth = Math.max(20, hourWidth - 12); renderTimeline(); return; }
+
   const nav = e.target.closest("button[data-view]");
   if (nav) {
     currentView = nav.dataset.view;
@@ -296,7 +394,7 @@ document.addEventListener("click", (e) => {
     renderCalendar();
     return;
   }
-  const act = e.target.closest("button[data-act]");
+  const act = e.target.closest("[data-act]");
   if (act) {
     const id = parseInt(act.dataset.id, 10);
     if (act.dataset.act === "toggle") {
@@ -306,6 +404,28 @@ document.addEventListener("click", (e) => {
     if (act.dataset.act === "del") {
       if (confirm("删除这个任务？")) api(`/api/tasks/${id}`, { method: "DELETE" });
     }
+    if (act.dataset.act === "sub-toggle") {
+      const checked = act.target.checked;
+      api(`/api/subtasks/${id}`, { method: "PATCH", body: JSON.stringify({ done: checked ? 1 : 0 }) });
+    }
+    if (act.dataset.act === "sub-del") {
+      api(`/api/subtasks/${id}`, { method: "DELETE" });
+    }
+    if (act.dataset.act === "sub-add") {
+      const input = $(`[data-sub-input="${id}"]`);
+      const title = input.value.trim();
+      if (title) {
+        api(`/api/tasks/${id}/subtasks`, { method: "POST", body: JSON.stringify({ title }) });
+        input.value = "";
+      }
+    }
+    return;
+  }
+  const card = e.target.closest(".task-card");
+  if (card && currentView === "list" && !e.target.closest(".task-expand")) {
+    const id = parseInt(card.querySelector("[data-act='toggle']").dataset.id, 10);
+    if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
+    renderList();
     return;
   }
   if (e.target.id === "btn-add") openModal();
@@ -314,12 +434,22 @@ document.addEventListener("click", (e) => {
   if (e.target.id === "modal") closeModal();
 });
 
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    api("/api/presence", { method: "POST", body: JSON.stringify({ user_id: ME.id, status: "away" }) });
-  } else {
-    api("/api/presence", { method: "POST", body: JSON.stringify({ user_id: ME.id, status: "focus" }) });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.matches("[data-sub-input]")) {
+    const id = e.target.dataset.subInput;
+    const title = e.target.value.trim();
+    if (title) {
+      api(`/api/tasks/${id}/subtasks`, { method: "POST", body: JSON.stringify({ title }) });
+      e.target.value = "";
+    }
   }
+});
+
+document.addEventListener("visibilitychange", () => {
+  const status = document.hidden ? "away" : "focus";
+  const sel = $("#my-status");
+  if (sel) sel.value = status;
+  pushPresence();
 });
 
 async function boot() {
@@ -335,6 +465,7 @@ async function boot() {
   stats = s;
   connectWS();
   render();
+  setInterval(refreshStats, 10000);
 }
 
 boot();

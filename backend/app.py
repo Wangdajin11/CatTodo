@@ -28,10 +28,12 @@ class TaskIn(BaseModel):
     end_time: str | None = None
     due_date: str | None = None
     is_private: int = 0
+    description: str = ""
 
 
 class TaskPatch(BaseModel):
     title: str | None = None
+    description: str | None = None
     start_time: str | None = None
     end_time: str | None = None
     due_date: str | None = None
@@ -39,9 +41,18 @@ class TaskPatch(BaseModel):
     is_private: int | None = None
 
 
+class SubtaskIn(BaseModel):
+    title: str
+
+
+class SubtaskPatch(BaseModel):
+    done: int
+
+
 class PresenceIn(BaseModel):
     user_id: int
     status: str
+    status_text: str = ""
 
 
 class TypingIn(BaseModel):
@@ -53,7 +64,7 @@ class TypingIn(BaseModel):
 class Hub:
     def __init__(self):
         self.conns: set[WebSocket] = set()
-        self.presence: dict[int, str] = {}
+        self.presence: dict[int, dict] = {}
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
@@ -111,6 +122,31 @@ async def api_delete(task_id: int):
     return {"ok": True}
 
 
+@app.post("/api/tasks/{task_id}/subtasks")
+async def api_add_subtask(task_id: int, body: SubtaskIn):
+    subs = models.add_subtask(task_id, body.title[:100])
+    await hub.broadcast({"type": "subtask:changed", "task_id": task_id, "subtasks": subs})
+    return subs
+
+
+@app.patch("/api/subtasks/{subtask_id}")
+async def api_set_subtask(subtask_id: int, patch: SubtaskPatch):
+    row = models.set_subtask_done(subtask_id, patch.done)
+    if row:
+        subs = models.subtasks_of(row["task_id"])
+        await hub.broadcast({"type": "subtask:changed", "task_id": row["task_id"], "subtasks": subs})
+    return row
+
+
+@app.delete("/api/subtasks/{subtask_id}")
+async def api_del_subtask(subtask_id: int):
+    task_id = models.delete_subtask(subtask_id)
+    if task_id:
+        subs = models.subtasks_of(task_id)
+        await hub.broadcast({"type": "subtask:changed", "task_id": task_id, "subtasks": subs})
+    return {"ok": True}
+
+
 @app.get("/api/presence")
 async def api_presence_get():
     return hub.presence
@@ -118,8 +154,15 @@ async def api_presence_get():
 
 @app.post("/api/presence")
 async def api_presence(p: PresenceIn):
-    hub.presence[p.user_id] = p.status
-    await hub.broadcast({"type": "presence", "user_id": p.user_id, "status": p.status})
+    hub.presence[p.user_id] = {"status": p.status, "text": p.status_text[:30]}
+    await hub.broadcast(
+        {
+            "type": "presence",
+            "user_id": p.user_id,
+            "status": p.status,
+            "status_text": p.status_text[:30],
+        }
+    )
     return {"ok": True}
 
 

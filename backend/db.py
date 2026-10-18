@@ -33,6 +33,14 @@ def init_db():
             updated_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY(owner_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS subtasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            done INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY(task_id) REFERENCES tasks(id)
+        );
         CREATE TABLE IF NOT EXISTS typing_daily (
             user_id INTEGER NOT NULL,
             day TEXT NOT NULL,
@@ -42,6 +50,9 @@ def init_db():
         );
         """
     )
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)")]
+    if "description" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN description TEXT DEFAULT ''")
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         conn.executemany(
             "INSERT INTO users (id, name, color) VALUES (?, ?, ?)",

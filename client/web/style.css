@@ -49,6 +49,17 @@ header {
   outline: none;
 }
 
+.status-text {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+  width: 130px;
+}
+
 nav { display: flex; gap: 6px; }
 nav button {
   border: none;
@@ -79,17 +90,19 @@ main { flex: 1; overflow: auto; padding: 18px 22px; }
 .empty { text-align: center; color: var(--muted); margin-top: 80px; font-size: 15px; }
 .task-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px 14px;
+  cursor: pointer;
 }
 .task-card.done { opacity: 0.55; }
 .task-color { width: 6px; align-self: stretch; border-radius: 4px; }
 .task-body { flex: 1; }
 .task-title { font-size: 15px; font-weight: 600; }
+.task-card > .btn-done, .task-card > .btn-del { margin-top: 2px; }
 .task-title .badge {
   font-size: 11px;
   color: var(--muted);
@@ -99,7 +112,63 @@ main { flex: 1; overflow: auto; padding: 18px 22px; }
   margin-left: 8px;
   font-weight: 400;
 }
+.task-title .sub-badge {
+  font-size: 11px;
+  background: #eef4fd;
+  color: #4a7bc0;
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-left: 8px;
+  font-weight: 400;
+}
 .task-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.task-expand { margin-top: 10px; cursor: default; }
+.task-desc {
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  margin-bottom: 8px;
+}
+.sub-list { display: flex; flex-direction: column; gap: 4px; }
+.sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.sub-row.checked span { text-decoration: line-through; color: var(--muted); }
+.sub-row input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+.sub-row span { flex: 1; }
+.sub-del {
+  border: none;
+  background: transparent;
+  color: #d98a8a;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.sub-add { display: flex; gap: 8px; margin-top: 6px; }
+.sub-add input {
+  flex: 1;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.sub-add button {
+  border: none;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
 .btn-done {
   border: 1px solid var(--line);
   background: var(--bg);
@@ -120,7 +189,19 @@ main { flex: 1; overflow: auto; padding: 18px 22px; }
 }
 
 /* 时间轴 */
-#view-timeline { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+#view-timeline { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+.tl-toolbar { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); margin-bottom: 2px; }
+.tl-toolbar button {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 8px;
+  width: 30px;
+  height: 28px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.tl-hint { margin-left: auto; font-size: 12px; }
+.tl-scroll { overflow-x: auto; overflow-y: hidden; }
 .day-row {
   background: var(--card);
   border: 1px solid var(--line);
@@ -129,17 +210,19 @@ main { flex: 1; overflow: auto; padding: 18px 22px; }
   display: flex;
   gap: 14px;
 }
-.day-label { width: 64px; font-size: 13px; color: var(--muted); padding-top: 14px; flex-shrink: 0; }
+.day-label { width: 64px; flex-shrink: 0; font-size: 13px; color: var(--muted); padding-top: 22px; }
 .day-label b { color: var(--accent); }
-.day-track { position: relative; flex: 1; height: 92px; border-radius: 8px; background: repeating-linear-gradient(to right, transparent, transparent calc(100%/24 - 1px), #f6efe6 calc(100%/24 - 1px)); }
-.hour-cell { position: absolute; top: 0; bottom: 0; width: 1px; background: #f6efe6; }
+.day-track { position: relative; border-radius: 8px; background: #fbf7f1; }
+.tl-ruler { padding-top: 4px; padding-bottom: 4px; }
+.tl-ruler .day-label { padding-top: 0; }
+.tl-ruler .day-track { background: transparent; }
+.hour-tick { position: absolute; top: 0; font-size: 10px; color: #b9a898; transform: translateX(-4px); }
+.hour-cell { position: absolute; top: 0; bottom: 0; width: 1px; background: #f0e8dc; }
 .task-bar {
   position: absolute;
-  height: 20px;
   border-radius: 6px;
   color: #fff;
   font-size: 11px;
-  line-height: 20px;
   padding: 0 6px;
   overflow: hidden;
   white-space: nowrap;
@@ -213,13 +296,16 @@ main { flex: 1; overflow: auto; padding: 18px 22px; }
 .modal-box h3 { font-size: 16px; }
 .modal-box label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); }
 .modal-box label.check { flex-direction: row; align-items: center; color: var(--text); }
-.modal-box input:not([type="checkbox"]) {
+.modal-box input:not([type="checkbox"]),
+.modal-box textarea {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 8px 10px;
   font-size: 14px;
   outline: none;
   color: var(--text);
+  font-family: inherit;
+  resize: vertical;
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 .modal-actions button {
